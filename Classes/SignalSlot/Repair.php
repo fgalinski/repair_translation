@@ -63,6 +63,7 @@ class Repair
             && $GLOBALS['TSFE']->sys_language_uid > 0
         ) {
             $mergedImages = array();
+            // @todo special handling for pages_language_overlay
             $translatedReferences = $this->getTranslatedSysFileReferences($query);
 
             $translatedReference = array();
@@ -77,6 +78,7 @@ class Repair
 
             $translatedForeignRecord = array();
             if (!empty($translatedReference)) {
+				// @todo special handling for pages_language_overlay
                 $translatedForeignRecord = $this->getTranslatedForeignRecord($translatedReference);
             }
 
@@ -87,6 +89,7 @@ class Repair
                     || $this->isRecordConfiguredToUseDefaultLanguage($translatedReference, $translatedForeignRecord)
                 )
             ) {
+				// @todo special handling for pages_language_overlay
                 $foreignRecord = $this->getForeignRecordInDefaultLanguage($translatedForeignRecord, $translatedReference);
                 if ($foreignRecord) {
                     // if translated field is empty, than use the images from default language
@@ -154,7 +157,8 @@ class Repair
             $record['tablenames'],
             'uid=' . (int)$record['uid_foreign']
         );
-        if (is_array($translatedForeignRecord)) {
+
+        if (is_array($translatedForeignRecord) && $record['tablenames'] !== 'pages_language_overlay') {
             $sysLanguageMode = $GLOBALS['TSFE']->sys_language_mode ? $GLOBALS['TSFE']->sys_language_mode : null;
             $overlayMode = $sysLanguageMode === 'strict' ? 'hideNonTranslated' : '';
             $translatedForeignRecord = $this->getPageRepository()->getRecordOverlay(
@@ -188,16 +192,21 @@ class Repair
     protected function getForeignRecordInDefaultLanguage(array $translatedRecord, array $sysFileReference)
     {
         $parentField = $GLOBALS['TCA'][$sysFileReference['tablenames']]['ctrl']['transOrigPointerField'];
+		$tableName = $sysFileReference['tablenames'];
+        if ($tableName === 'pages_language_overlay') {
+			$tableName = 'pages';
+		}
+
         $foreignRecord = $this->getDatabaseConnection()->exec_SELECTgetSingleRow(
             '*',
-            $sysFileReference['tablenames'],
+			$tableName,
             'uid=' . (int)$translatedRecord[$parentField]
         );
         if (empty($foreignRecord)) {
             $foreignRecord = array();
         }
 
-        BackendUtility::workspaceOL($sysFileReference['tablenames'], $foreignRecord);
+        BackendUtility::workspaceOL($tableName, $foreignRecord);
         // t3ver_state=2 indicates that the live element must be deleted upon swapping the versions.
         if ((int)$foreignRecord['t3ver_state'] === 2) {
             $foreignRecord = array();
@@ -302,7 +311,12 @@ class Repair
         $where = array();
         // add where statements. uid_foreign=UID of translated parent record
         $this->queryParser->parseConstraint($query->getConstraint(), $where);
-
+		// @todo ordentlich machen | #1 Select
+        $where = [
+			'sys_file_reference.uid_foreign=10',
+			'sys_file_reference.tablenames=\'pages_language_overlay\'',
+			'sys_file_reference.fieldname=\'tx_sgnews_teaser2_image\'',
+		];
         if ($this->environmentService->isEnvironmentInFrontendMode()) {
             $where[] = ' 1=1 ' . $this->getPageRepository()->enableFields('sys_file_reference');
         } else {

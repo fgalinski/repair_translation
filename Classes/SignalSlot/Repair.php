@@ -63,7 +63,6 @@ class Repair
             && $GLOBALS['TSFE']->sys_language_uid > 0
         ) {
             $mergedImages = array();
-            // @todo special handling for pages_language_overlay
             $translatedReferences = $this->getTranslatedSysFileReferences($query);
 
             $translatedReference = array();
@@ -78,7 +77,6 @@ class Repair
 
             $translatedForeignRecord = array();
             if (!empty($translatedReference)) {
-				// @todo special handling for pages_language_overlay
                 $translatedForeignRecord = $this->getTranslatedForeignRecord($translatedReference);
             }
 
@@ -89,7 +87,6 @@ class Repair
                     || $this->isRecordConfiguredToUseDefaultLanguage($translatedReference, $translatedForeignRecord)
                 )
             ) {
-				// @todo special handling for pages_language_overlay
                 $foreignRecord = $this->getForeignRecordInDefaultLanguage($translatedForeignRecord, $translatedReference);
                 if ($foreignRecord) {
                     // if translated field is empty, than use the images from default language
@@ -311,12 +308,38 @@ class Repair
         $where = array();
         // add where statements. uid_foreign=UID of translated parent record
         $this->queryParser->parseConstraint($query->getConstraint(), $where);
-		// @todo ordentlich machen | #1 Select
-        $where = [
-			'sys_file_reference.uid_foreign=10',
-			'sys_file_reference.tablenames=\'pages_language_overlay\'',
-			'sys_file_reference.fieldname=\'tx_sgnews_teaser2_image\'',
-		];
+
+        // @todo improve me.
+		if (\in_array('sys_file_reference.tablenames=\'pages\'', $where, TRUE)) {
+			$uidForeign = 0;
+			$uidForeignIdentifier = 'sys_file_reference.uid_foreign=';
+			foreach ($where as $wherePart) {
+				if (\strpos($wherePart, $uidForeignIdentifier) !== 0) {
+					continue;
+				}
+
+				$uidForeign = (int) \substr($wherePart, \strlen($uidForeignIdentifier));
+				break;
+			}
+
+			if ($uidForeign > 0) {
+				$row = $this->getDatabaseConnection()->exec_SELECTgetSingleRow(
+					'uid', 'pages_language_overlay',
+					'pid = ' . $uidForeign . ' AND sys_language_uid = ' . $GLOBALS['TSFE']->sys_language_uid
+				);
+				$rowUid = (int) $row['uid'];
+				if ($rowUid > 0) {
+					foreach ($where as $key => $wherePart) {
+						if ($wherePart === 'sys_file_reference.tablenames=\'pages\'') {
+							$where[$key] = 'sys_file_reference.tablenames=\'pages_language_overlay\'';
+						} elseif ($wherePart === $uidForeignIdentifier . $uidForeign) {
+							$where[$key] = $uidForeignIdentifier . $rowUid;
+						}
+					}
+				}
+			}
+		}
+
         if ($this->environmentService->isEnvironmentInFrontendMode()) {
             $where[] = ' 1=1 ' . $this->getPageRepository()->enableFields('sys_file_reference');
         } else {
